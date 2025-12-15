@@ -10,7 +10,7 @@ pipeline {
 
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
-        DOCKER_IMAGE = 'mohdyazz/bms:latest'
+        DOCKER_IMAGE = 'mohdayazz/bms:latest'
         EKS_CLUSTER_NAME = 'ayaz-eks'
         AWS_REGION = 'ap-south-1'
     }
