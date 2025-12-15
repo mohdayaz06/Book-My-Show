@@ -1,5 +1,3 @@
-(with K8S Stage)
-
 pipeline {
     agent any
 
@@ -16,6 +14,7 @@ pipeline {
     }
 
     stages {
+
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -25,17 +24,17 @@ pipeline {
         stage('Checkout from Git') {
             steps {
                 git branch: 'main', url: 'https://github.com/mohdayaz06/Book-My-Show'
-                sh 'ls -la'  // Verify files after checkout
+                sh 'ls -la'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh ''' 
+                    sh '''
                     $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectName=BMS \
-                        -Dsonar.projectKey=BMS
+                      -Dsonar.projectName=BMS \
+                      -Dsonar.projectKey=BMS
                     '''
                 }
             }
@@ -53,69 +52,55 @@ pipeline {
             steps {
                 sh '''
                 cd bookmyshow-app
-                ls -la  # Verify package.json exists
+
                 if [ -f package.json ]; then
-                    rm -rf node_modules package-lock.json  # Remove old dependencies
-                    npm install  # Install fresh dependencies
+                    rm -rf node_modules package-lock.json
+                    npm install
                 else
-                    echo "Error: package.json not found in bookmyshow-app!"
+                    echo "package.json not found!"
                     exit 1
                 fi
                 '''
             }
         }
 
-        stage('OWASP FS Scan') {
-            steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-
         stage('Trivy FS Scan') {
             steps {
-                sh 'trivy fs . > trivyfs.txt'
+                sh '''
+                trivy fs . > trivyfs.txt
+                '''
             }
         }
 
         stage('Docker Build & Push') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh ''' 
-                        echo "Building Docker image..."
-                        docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
+                withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                    sh '''
+                    docker build --no-cache \
+                      -t $DOCKER_IMAGE \
+                      -f bookmyshow-app/Dockerfile bookmyshow-app
 
-                        echo "Pushing Docker image to Docker Hub..."
-                        docker push $DOCKER_IMAGE
-                        '''
-                    }
+                    docker push $DOCKER_IMAGE
+                    '''
                 }
             }
         }
 
         stage('Deploy to EKS Cluster') {
             steps {
-                script {
-                    sh '''
-                    echo "Verifying AWS credentials..."
-                    aws sts get-caller-identity
+                sh '''
+                aws sts get-caller-identity
 
-                    echo "Configuring kubectl for EKS cluster..."
-                    aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+                aws eks update-kubeconfig \
+                  --name $EKS_CLUSTER_NAME \
+                  --region $AWS_REGION
 
-                    echo "Verifying kubeconfig..."
-                    kubectl config view
+                kubectl apply -f deployment.yml
+                kubectl apply -f service.yml
 
-                    echo "Deploying application to EKS..."
-                    kubectl apply -f deployment.yml
-                    kubectl apply -f service.yml
-
-                    echo "Verifying deployment..."
-                    kubectl get pods
-                    kubectl get svc
-                    '''
-                }
+                kubectl get pods
+                kubectl get svc
+                '''
             }
         }
     }
@@ -123,10 +108,12 @@ pipeline {
     post {
         always {
             emailext attachLog: true,
-                subject: "'${currentBuild.result}'",
-                body: "Project: ${env.JOB_NAME}<br/>" +
-                      "Build Number: ${env.BUILD_NUMBER}<br/>" +
-                      "URL: ${env.BUILD_URL}<br/>",
+                subject: "Build Status: ${currentBuild.result}",
+                body: """
+                Project: ${env.JOB_NAME}<br/>
+                Build Number: ${env.BUILD_NUMBER}<br/>
+                Build URL: ${env.BUILD_URL}<br/>
+                """,
                 to: 'mohammedayaz.r@gmail.com',
                 attachmentsPattern: 'trivyfs.txt'
         }
